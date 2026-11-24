@@ -1,0 +1,11 @@
+{
+  "name": "pwa-common-api",
+  "main": "worker/translation.js",
+  "compatibility_date": "2026-11-24",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {"ALLOWED_ORIGINS":"https://applauncher.tannervoas.workers.dev,https://ciyan.tannervoas.workers.dev"},
+  "services": [{"binding":"PROFILES","service":"pwa-profiles-api"}],
+  "durable_objects": {"bindings":[{"name":"TRANSLATION_BUDGET","class_name":"TranslationBudget"}]},
+  "migrations": [{"tag":"v1","new_sqlite_classes":["TranslationBudget"]}]
+}

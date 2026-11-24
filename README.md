@@ -55,3 +55,7 @@ AppLauncher and Ciyan explicitly preserve their existing shared legacy cache-pre
 `npm test` runs the Node.js lifecycle/updater/message tests and Python inventory/generator tests. Node 22 and Python 3.12+ are the intended CI tools; no npm or pip installation is needed. GitHub Actions tests pushes and pull requests. The package has its own version and tag; consumer releases pin the exact tested commit and expose it in AppLauncher's dependency tree. PWA-Core does not deploy a Worker or dispatch automatic consumer updates in v0.1.0. Each consumer upgrades explicitly, and AppLauncher validates the complete candidate before promoting production. Distinct PWA-Core pins can coexist because each is packaged with its consumer and the hosted service worker remains launcher-owned.
 
 See `ITEM6_PLAN.md` for migration order, release gates, architecture boundaries and later work.
+
+## Shared translation
+
+`src/translation.js` provides temporary device-local cached translation. The private `pwa-common-api` Worker is deployed separately from the apps; see [setup](TRANSLATION_SETUP.md).

@@ -1,13 +1,17 @@
 {
   "name": "pwa-core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "exports": {
     "./pwa-update": "./src/pwa-update.js",
     "./offline-request": "./src/offline-request.js",
     "./browser-host": "./src/browser-host.js",
-    "./browser-files": "./src/browser-files.js"
+    "./browser-files": "./src/browser-files.js",
+    "./translation": "./src/translation.js"
   },
-  "scripts": {"test": "node --test tests/*.test.js && python3 -m unittest discover -s tests -p 'test_*.py'"}
+  "scripts": {
+    "test": "node --test tests/*.test.js && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "deploy:worker": "npx --yes wrangler@4 deploy"
+  }
 }
