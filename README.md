@@ -58,4 +58,4 @@ See `ITEM6_PLAN.md` for migration order, release gates, architecture boundaries 
 
 ## Shared translation
 
-`src/translation.js` provides temporary device-local cached translation. The private `pwa-common-api` Worker is deployed separately from the apps; see [setup](TRANSLATION_SETUP.md).
+`src/translation.js` provides temporary device-local cached translation. The private `pwa-core-api` Worker is deployed separately from the apps; see [setup](TRANSLATION_SETUP.md).

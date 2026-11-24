@@ -1,5 +1,5 @@
 {
-  "name": "pwa-common-api",
+  "name": "pwa-core-api",
   "main": "worker/translation.js",
   "compatibility_date": "2026-11-24",
   "workers_dev": false,
