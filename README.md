@@ -1,6 +1,13 @@
-# PWA-Core v0.1.0
+# PWA-Core v0.1.1
 
 Dependency-free, independently pinned shared PWA infrastructure for AppLauncher and its applications. This repository is not a hosted application, a Cloudflare Worker deployment, a data store, or a cloud authentication library. It is consumed as a Git submodule at `shared/pwa-core` and packaged locally. It does not depend on AppLauncher or PWA-GoogleDrive.
+
+## Browser primitives (7C, v0.1.1)
+
+- `browser-host.js`: live callable host detection, receiver-preserving Home, optional hosted updater with lazy local fallback, best-effort standalone worker registration. Apps must still complete their own save policy. The host owns the hosted service worker and navigation; the helper does not register one in hosted mode by itself. Pass `env` only for testing or an explicit browser environment.
+- `browser-files.js`: Blob/text delivery using a temporary attached hidden anchor, with caller-selected URL revocation delay and cleanup even on a failed click. `shareFileOrDownload` returns `shared` or `downloaded` to describe the initiated delivery path, never proof of a durable saved file. It only falls back when file sharing is unsupported or not requested; cancellation and share errors propagate. Filename selection, MIME, serialization, schema checks, confirmation and backup state remain app policy.
+
+Both modules are dependency-free. Package each selected file locally at the consumer's runtime path; do not ship source adapters that import a repository-relative submodule. WorldGen and Ascendant use their own app-relative copies; Ciyan's new root filenames are separate from host-owned assets. Existing updater/worker and offline protocol are unchanged. The launcher provider and its controller-change listener remain separate from standalone registration. IndexedDB helpers, app modals, import schemas, async cancellation and app lifecycle policies were audited but not generalized: their transactions, UI and failure contracts differ.
 
 ## First release
 
@@ -17,7 +24,7 @@ Pin a reviewed release rather than tracking an untested branch at build time:
 
 ```sh
 git submodule add https://github.com/tanner-voas/PWA-Core.git shared/pwa-core
-git -C shared/pwa-core checkout --detach v0.1.0
+git -C shared/pwa-core checkout --detach v0.1.1
 git add .gitmodules shared/pwa-core
 ```
 
