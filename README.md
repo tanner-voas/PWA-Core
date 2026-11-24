@@ -1,6 +1,6 @@
-# PWA-Core v0.1.1
+# PWA-Core v0.1.3
 
-Dependency-free, independently pinned shared PWA infrastructure for AppLauncher and its applications. This repository is not a hosted application, a Cloudflare Worker deployment, a data store, or a cloud authentication library. It is consumed as a Git submodule at `shared/pwa-core` and packaged locally. It does not depend on AppLauncher or PWA-GoogleDrive.
+Dependency-free, independently pinned shared PWA infrastructure for AppLauncher and its applications. This repository also deploys the private shared translation Worker; it is not a hosted application or cloud authentication library. It is consumed as a Git submodule at `shared/pwa-core` and packaged locally. It does not depend on AppLauncher or PWA-GoogleDrive.
 
 ## Browser primitives (7C, v0.1.1)
 

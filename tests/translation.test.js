@@ -1,15 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createTranslationWorker,TranslationBudget,billingMonth,MONTHLY_LIMIT} from '../worker/translation.js';
-import {translate,translationKey} from '../src/translation.js';
+import {translate,translationKey,getTranslationDiagnostics,clearTranslationDiagnostics} from '../src/translation.js';
 const origin='https://ciyan.example';
 const request=(body={text:'你好',source:'zh-CN',target:'en'},headers={})=>new Request(origin+'/_translation/translate',{method:'POST',headers:{'Content-Type':'application/json','X-PWA-CSRF':'1',Cookie:'session=abc',Origin:origin,...headers},body:JSON.stringify(body)});
 function fixture({connected=true,allowed=true}={}){
  let called=0,reserved=0;const worker=createTranslationWorker(async(url,options)=>{called++;assert.equal(options.headers['X-Goog-Api-Key'],'test');assert.equal(JSON.parse(options.body).q,'你好');return Response.json({data:{translations:[{translatedText:'Hello'}]}});});
- const env={ALLOWED_ORIGINS:origin,GOOGLE_TRANSLATE_API_KEY:'test',PROFILES:{fetch:async req=>{assert.equal(new URL(req.url).pathname,'/_profiles/status');assert.equal(req.headers.get('Cookie'),'session=abc');return Response.json({connected});}},TRANSLATION_BUDGET:{idFromName:x=>x,get:()=>({fetch:async(_,opts)=>{reserved+=JSON.parse(opts.body).count;return new Response('',{status:allowed?200:429});}})}};
+ const env={ALLOWED_ORIGINS:origin,GOOGLE_TRANSLATE_API_KEY:'test',PROFILES:{fetch:async req=>{assert.equal(new URL(req.url).pathname,'/_profiles/v1/status');assert.equal(req.headers.get('Cookie'),'session=abc');return Response.json({connected});}},TRANSLATION_BUDGET:{idFromName:x=>x,get:()=>({fetch:async(_,opts)=>{reserved+=JSON.parse(opts.body).count;return new Response('',{status:allowed?200:429});}})}};
  return {worker,env,counts:()=>({called,reserved})};
 }
 test('authenticated exact input reserves characters and calls Google once',async()=>{const f=fixture();const r=await f.worker.fetch(request(),f.env);assert.equal(r.status,200);assert.equal((await r.json()).text,'Hello');assert.deepEqual(f.counts(),{called:1,reserved:2});});
 test('rejects unauthenticated, cross-origin, unsupported languages, overlength and exhausted budget',async()=>{let f=fixture({connected:false});assert.equal((await f.worker.fetch(request(),f.env)).status,401);assert.equal(f.counts().called,0);f=fixture();assert.equal((await f.worker.fetch(request(undefined,{Origin:'https://evil.example'}),f.env)).status,403);assert.equal((await f.worker.fetch(request({text:'你好',source:'zh-CN',target:'fr'}),f.env)).status,400);assert.equal((await f.worker.fetch(request({text:'字'.repeat(5001),source:'zh-CN',target:'en'}),f.env)).status,400);assert.equal(f.counts().called,0);f=fixture({allowed:false});assert.equal((await f.worker.fetch(request(),f.env)).status,429);assert.equal(f.counts().called,0);});
 test('monthly cap exact boundary and reset',async()=>{let usage={month:billingMonth(),used:MONTHLY_LIMIT-2};const b=new TranslationBudget({storage:{transaction:fn=>fn({get:async()=>usage,put:async(_,v)=>usage=v})}});const reserve=count=>b.fetch(new Request('https://internal/reserve',{method:'POST',body:JSON.stringify({count})}));assert.equal((await reserve(2)).status,200);assert.equal((await reserve(1)).status,429);usage.month='old';assert.equal((await reserve(1)).status,200);assert.equal(usage.used,1);});
 test('client deduplicates identical in-flight requests and hashes exact Chinese',async()=>{let calls=0;const fetcher=async()=>{calls++;await new Promise(r=>setTimeout(r,20));return Response.json({text:'Hello'});};assert.deepEqual(await Promise.all([translate('你好',{fetcher}),translate('你好',{fetcher})]),['Hello','Hello']);assert.equal(calls,1);assert.notEqual(await translationKey('你好'),await translationKey('你好！'));});
+
+test('auth route uses the actual versioned endpoint; profile HTTP errors are not sign-out',async()=>{
+ const f=fixture();let seen;f.env.PROFILES.fetch=async req=>{seen=new URL(req.url).pathname;return Response.json({error:'Unknown route'},{status:404});};
+ const r=await f.worker.fetch(request(),f.env);const body=await r.json();assert.equal(seen,'/_profiles/v1/status');assert.equal(r.status,502);assert.equal(body.code,'PROFILE_HTTP');assert.equal(body.upstreamStatus,404);assert.equal(f.counts().called,0);
+});
+test('missing key and upstream Google failure have distinct safe diagnostics',async()=>{
+ const f=fixture();delete f.env.GOOGLE_TRANSLATE_API_KEY;let r=await f.worker.fetch(request(),f.env);assert.equal((await r.json()).code,'API_KEY_MISSING');
+ f.env.GOOGLE_TRANSLATE_API_KEY='test';const logs=[];const w=createTranslationWorker(async()=>Response.json({error:'secret input'},{status:403}),e=>logs.push(e));r=await w.fetch(request(),f.env);const body=await r.json();assert.equal(body.code,'GOOGLE_HTTP');assert.equal(body.upstreamStatus,403);assert.equal(logs[0].requestId,body.requestId);assert.doesNotMatch(JSON.stringify([body,logs]),/secret input|session=abc|你好/);
+});
+test('client exports status and correlation id without paragraph or error text',async()=>{
+ clearTranslationDiagnostics();const requestId=crypto.randomUUID();await assert.rejects(translate('private Chinese input',{fetcher:async()=>Response.json({error:'private detail',code:'PROFILE_HTTP',upstreamStatus:404,requestId},{status:502})}),/PROFILE_HTTP.*502.*404/);
+ const e=getTranslationDiagnostics().events.at(-1);assert.equal(e.code,'PROFILE_HTTP');assert.equal(e.status,502);assert.equal(e.upstreamStatus,404);assert.equal(e.requestId,requestId);assert.doesNotMatch(JSON.stringify(e),/private/);
+});

@@ -17,29 +17,51 @@ export class TranslationBudget {
   return json({accepted},accepted?200:429);
  }
 }
-export function createTranslationWorker(fetchGoogle=globalThis.fetch){return {async fetch(request,env){
+// Only fixed codes, numeric statuses and timings are logged. Never log text,
+// cookies, provider response bodies, keys, or user identifiers.
+export function createTranslationWorker(fetchGoogle=globalThis.fetch,log=event=>console.log(JSON.stringify(event))){return {async fetch(request,env){
+ const requestId=crypto.randomUUID(),started=Date.now();let stage='request',characters=0;
+ const result=(body,status=200,upstreamStatus)=>{
+  const event={kind:'translation',requestId,stage,code:body.code||'OK',status,durationMs:Date.now()-started,characters,...(Number.isInteger(upstreamStatus)?{upstreamStatus}:{})};
+  try{log(event);}catch{}
+  return json({...body,requestId,...(Number.isInteger(upstreamStatus)?{upstreamStatus}:{})},status);
+ };
+ const fail=(code,error,status,upstreamStatus)=>result({code,error},status,upstreamStatus);
  try{
   const url=new URL(request.url);
-  if(url.pathname!=='/_translation/translate'||request.method!=='POST')return json({error:'Not found'},404);
-  if(!String(env.ALLOWED_ORIGINS||'').split(',').includes(url.origin)||request.headers.get('X-PWA-CSRF')!=='1'||(request.headers.get('Origin')&&request.headers.get('Origin')!==url.origin)||request.headers.get('Sec-Fetch-Site')==='cross-site')return json({error:'Invalid request origin'},403);
-  if(!env.PROFILES||!env.TRANSLATION_BUDGET||!env.GOOGLE_TRANSLATE_API_KEY)return json({error:'Translation service not configured'},503);
-  const auth=await env.PROFILES.fetch(new Request(new URL('/_profiles/status',url),{headers:{Cookie:request.headers.get('Cookie')||''}}));
-  if(!auth.ok||!(await auth.json()).connected)return json({error:'Connect Google Drive to translate'},401);
-  // Avoid passing the original paragraph or secret to the profile Worker.
-  if(!request.headers.get('Content-Type')?.startsWith('application/json'))return json({error:'Expected JSON'},415);
-  const raw=await request.text();if(raw.length>32000)return json({error:'Paragraph too long'},413);
-  let body;try{body=JSON.parse(raw);}catch{return json({error:'Invalid JSON'},400);}
-  if(!validTranslation(body))return json({error:'Expected a Chinese paragraph of at most 5,000 characters'},400);
+  if(url.pathname!=='/_translation/translate'||request.method!=='POST')return fail('ROUTE','Translation route not found',404);
+  if(!String(env.ALLOWED_ORIGINS||'').split(',').map(s=>s.trim()).includes(url.origin)||request.headers.get('X-PWA-CSRF')!=='1'||(request.headers.get('Origin')&&request.headers.get('Origin')!==url.origin)||request.headers.get('Sec-Fetch-Site')==='cross-site')return fail('ORIGIN','Invalid translation request origin',403);
+  stage='configuration';
+  if(!env.PROFILES)return fail('PROFILE_BINDING','Profile service binding missing in pwa-core-api',503);
+  if(!env.TRANSLATION_BUDGET)return fail('BUDGET_BINDING','Translation budget binding missing in pwa-core-api',503);
+  if(!env.GOOGLE_TRANSLATE_API_KEY)return fail('API_KEY_MISSING','Google Translation API key missing in pwa-core-api',503);
+  stage='authentication';
+  const auth=await env.PROFILES.fetch(new Request(new URL('/_profiles/v1/status',url),{headers:{Cookie:request.headers.get('Cookie')||''}}));
+  if(!auth.ok)return fail('PROFILE_HTTP','Google Drive session verification service failed',502,auth.status);
+  let profile;try{profile=await auth.json();}catch{return fail('PROFILE_RESPONSE','Invalid Google Drive verification response',502);}
+  if(profile?.connected===false)return fail('DISCONNECTED','Connect Google Drive to translate',401);
+  if(profile?.connected!==true)return fail('PROFILE_RESPONSE','Invalid Google Drive verification response',502);
+  stage='request';
+  if(!request.headers.get('Content-Type')?.startsWith('application/json'))return fail('CONTENT_TYPE','Expected JSON',415);
+  const raw=await request.text();if(raw.length>32000)return fail('LENGTH','Paragraph too long',413);
+  let body;try{body=JSON.parse(raw);}catch{return fail('INVALID_JSON','Invalid JSON',400);}
+  if(!validTranslation(body))return fail('INVALID_INPUT','Expected a Chinese paragraph of at most 5,000 characters',400);
+  characters=[...body.text].length;stage='budget';
   const budget=env.TRANSLATION_BUDGET.get(env.TRANSLATION_BUDGET.idFromName('global'));
-  const reservation=await budget.fetch('https://internal/reserve',{method:'POST',body:JSON.stringify({count:[...body.text].length})});
-  if(reservation.status===429)return json({error:'Monthly translation allowance exhausted'},429);
-  if(!reservation.ok)return json({error:'Translation quota unavailable'},503);
+  const reservation=await budget.fetch('https://internal/reserve',{method:'POST',body:JSON.stringify({count:characters})});
+  if(reservation.status===429)return fail('MONTHLY_LIMIT','Monthly translation allowance exhausted',429);
+  if(!reservation.ok)return fail('BUDGET_HTTP','Translation quota unavailable',503,reservation.status);
   // Reserve before calling Google. Never automatically retry/refund uncertain requests.
+  stage='google';
   const response=await fetchGoogle('https://translation.googleapis.com/language/translate/v2',{method:'POST',headers:{'X-Goog-Api-Key':env.GOOGLE_TRANSLATE_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({q:body.text,source:body.source,target:body.target,format:'text'}),signal:AbortSignal.timeout(20000)});
-  if(!response.ok)return json({error:'Google Translation is temporarily unavailable'},502);
-  const translated=(await response.json())?.data?.translations?.[0]?.translatedText;
-  if(typeof translated!=='string')return json({error:'Invalid translation response'},502);
-  return json({text:translated,provider:'google'});
- }catch{return json({error:'Translation service unavailable'},502);}
+  if(!response.ok){
+   // Do not expose provider bodies: they can contain project identifiers or input.
+   const message=response.status===400?'Google rejected the translation request; check API key and request settings':response.status===401||response.status===403?'Google denied translation; check the API key, enabled API and billing':response.status===429?'Google translation quota or rate limit reached':'Google Translation is temporarily unavailable';
+   return fail('GOOGLE_HTTP',message,502,response.status);
+  }
+  let translated;try{translated=(await response.json())?.data?.translations?.[0]?.translatedText;}catch{}
+  if(typeof translated!=='string')return fail('GOOGLE_RESPONSE','Invalid translation response',502);
+  return result({text:translated,provider:'google'});
+ }catch(e){return fail(stage==='authentication'?'PROFILE_UNAVAILABLE':stage==='budget'?'BUDGET_UNAVAILABLE':stage==='google'?'GOOGLE_UNAVAILABLE':'SERVICE_UNAVAILABLE',stage==='authentication'?'Google Drive verification unavailable':stage==='budget'?'Translation quota service unavailable':stage==='google'?'Google Translation request failed or timed out':'Translation service unavailable',502);}
 }};}
 export default createTranslationWorker();
