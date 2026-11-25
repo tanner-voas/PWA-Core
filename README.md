@@ -1,4 +1,4 @@
-# PWA-Core v0.1.3
+# PWA-Core v0.1.4
 
 Dependency-free, independently pinned shared PWA infrastructure for AppLauncher and its applications. This repository also deploys the private shared translation Worker; it is not a hosted application or cloud authentication library. It is consumed as a Git submodule at `shared/pwa-core` and packaged locally. It does not depend on AppLauncher or PWA-GoogleDrive.
 
@@ -59,3 +59,6 @@ See `ITEM6_PLAN.md` for migration order, release gates, architecture boundaries 
 ## Shared translation
 
 `src/translation.js` provides temporary device-local cached translation. The private `pwa-core-api` Worker is deployed separately from the apps; see [setup](TRANSLATION_SETUP.md).
+
+## Unified telemetry (TEL-01, foundation)
+`src/telemetry.js` is the canonical schema 2 allowlist and legacy Drive adapter. No arbitrary strings or provider payloads are accepted. The Drive Worker vendors this exact module to avoid a new submodule/deployment dependency; update both copies together and compare bytes before release. This is a contract only, not an automatic collector. The archive adds trusted ingestion timestamps; producers generate stable observation UUIDs. Provider log excerpts, non-workspace repository names and additional operations require separate reviewed schema extensions.
