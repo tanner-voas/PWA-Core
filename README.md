@@ -1,4 +1,4 @@
-# PWA-Core v0.1.5
+# PWA-Core v0.1.6
 
 Dependency-free, independently pinned shared PWA infrastructure for AppLauncher and its applications. This repository also deploys the private shared translation Worker; it is not a hosted application or cloud authentication library. It is consumed as a Git submodule at `shared/pwa-core` and packaged locally. It does not depend on AppLauncher or PWA-GoogleDrive.
 

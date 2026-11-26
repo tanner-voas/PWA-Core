@@ -19,11 +19,14 @@ export class TranslationBudget {
 }
 // Only fixed codes, numeric statuses and timings are logged. Never log text,
 // cookies, provider response bodies, keys, or user identifiers.
-export function createTranslationWorker(fetchGoogle=globalThis.fetch,log=event=>console.log(JSON.stringify(event))){return {async fetch(request,env){
+export function createTranslationWorker(fetchGoogle=globalThis.fetch,log=event=>console.log(JSON.stringify(event))){return {async fetch(request,env,ctx){
  const requestId=crypto.randomUUID(),started=Date.now();let stage='request',characters=0;
  const result=(body,status=200,upstreamStatus)=>{
   const event={kind:'translation',requestId,stage,code:body.code||'OK',status,durationMs:Date.now()-started,characters,...(Number.isInteger(upstreamStatus)?{upstreamStatus}:{})};
   try{log(event);}catch{}
+  // Only actual Google attempts after a successful budget reservation count.
+  // This does not alter the quota reservation or the translation response.
+  if(stage==='google'&&ctx?.waitUntil)try{const sample={id:requestId,operation:'request',outcome:status===200?'success':'error',status:upstreamStatus||status,characters,durationMs:event.durationMs};ctx.waitUntil(Promise.resolve().then(()=>env.PROFILES.translationUsage(new URL(request.url).origin,request.headers.get('Cookie')||'',sample)).catch(()=>{}));}catch{}
   return json({...body,requestId,...(Number.isInteger(upstreamStatus)?{upstreamStatus}:{})},status);
  };
  const fail=(code,error,status,upstreamStatus)=>result({code,error},status,upstreamStatus);
